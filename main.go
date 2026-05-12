@@ -1,10 +1,17 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -188,15 +195,28 @@ type DNSRecord struct {
 
 // ProbeResult 拨测结果
 type ProbeResult struct {
-	Domain    string
-	DNSServer string
-	Records   []DNSRecord
-	Latency   time.Duration
-	Error     error
+	Domain      string
+	DNSServer   string
+	Records     []DNSRecord
+	Latency     time.Duration
+	Error       error
+	IsPolluted  bool
+	DNSSECValid bool
 }
 
 // ProbeDNS 拨测单个DNS服务器（只查询A记录）
 func ProbeDNS(domain, dnsServer string) ProbeResult {
+	// 检查是否是DoH服务器
+	if strings.HasPrefix(dnsServer, "https://") {
+		return probeDoH(domain, dnsServer)
+	}
+
+	// 检查是否是DoT服务器
+	if strings.Contains(dnsServer, ":853") {
+		return probeDoT(domain, dnsServer)
+	}
+
+	// 普通DNS查询
 	c := new(dns.Client)
 	c.Timeout = 5 * time.Second
 
@@ -211,6 +231,7 @@ func ProbeDNS(domain, dnsServer string) ProbeResult {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
 	m.RecursionDesired = true
+	m.CheckingDisabled = false
 
 	r, _, err := c.Exchange(m, net.JoinHostPort(dnsServer, "53"))
 	if err != nil {
@@ -223,6 +244,144 @@ func ProbeDNS(domain, dnsServer string) ProbeResult {
 		result.Error = fmt.Errorf("DNS query failed: %s", dns.RcodeToString[r.Rcode])
 		result.Latency = time.Since(start)
 		return result
+	}
+
+	// 检查DNSSEC验证状态
+	if r.AuthenticatedData {
+		result.DNSSECValid = true
+	}
+
+	// 解析A记录结果
+	for _, answer := range r.Answer {
+		record := parseRecord(answer)
+		result.Records = append(result.Records, record)
+	}
+
+	result.Latency = time.Since(start)
+	return result
+}
+
+// probeDoH DNS over HTTPS查询
+func probeDoH(domain, dohServer string) ProbeResult {
+	result := ProbeResult{
+		Domain:    domain,
+		DNSServer: dohServer,
+	}
+
+	start := time.Now()
+
+	// 构建DNS查询
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+	m.RecursionDesired = true
+
+	pack, err := m.Pack()
+	if err != nil {
+		result.Error = fmt.Errorf("failed to pack DNS message: %s", err.Error())
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	// 发送DoH请求
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("POST", dohServer, bytes.NewReader(pack))
+	if err != nil {
+		result.Error = fmt.Errorf("failed to create request: %s", err.Error())
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	req.Header.Set("Content-Type", "application/dns-message")
+	req.Header.Set("Accept", "application/dns-message")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to send DoH request: %s", err.Error())
+		result.Latency = time.Since(start)
+		return result
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		result.Error = fmt.Errorf("DoH request failed with status: %d", resp.StatusCode)
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to read response body: %s", err.Error())
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	// 解析DNS响应
+	r := new(dns.Msg)
+	if err := r.Unpack(body); err != nil {
+		result.Error = fmt.Errorf("failed to unpack DNS response: %s", err.Error())
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	// 检查DNSSEC验证状态
+	if r.AuthenticatedData {
+		result.DNSSECValid = true
+	}
+
+	// 解析A记录结果
+	for _, answer := range r.Answer {
+		record := parseRecord(answer)
+		result.Records = append(result.Records, record)
+	}
+
+	result.Latency = time.Since(start)
+	return result
+}
+
+// probeDoT DNS over TLS查询
+func probeDoT(domain, dotServer string) ProbeResult {
+	result := ProbeResult{
+		Domain:    domain,
+		DNSServer: dotServer,
+	}
+
+	start := time.Now()
+
+	// 构建DNS查询
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+	m.RecursionDesired = true
+
+	// 创建TLS连接
+	tlsConfig := &tls.Config{}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", dotServer, tlsConfig)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to connect to DoT server: %s", err.Error())
+		result.Latency = time.Since(start)
+		return result
+	}
+	defer conn.Close()
+
+	// 使用DNS客户端
+	c := new(dns.Client)
+	c.Net = "tcp-tls"
+
+	r, _, err := c.Exchange(m, dotServer)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to query DoT server: %s", err.Error())
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	if r.Rcode != dns.RcodeSuccess {
+		result.Error = fmt.Errorf("DNS query failed: %s", dns.RcodeToString[r.Rcode])
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	// 检查DNSSEC验证状态
+	if r.AuthenticatedData {
+		result.DNSSECValid = true
 	}
 
 	// 解析A记录结果
@@ -467,6 +626,52 @@ func ProbeAll(domain string, dnsServers []string) []ProbeResult {
 	return results
 }
 
+// ProbeAllWithPollutionCheck 并发拨测所有DNS服务器（带污染检测）
+func ProbeAllWithPollutionCheck(domain string, dnsServers []string) []ProbeResult {
+	// 先用国外DNS查询作为基准
+国外DNS := []string{"8.8.8.8", "1.1.1.1"}
+	benchmarkResults := ProbeAll(domain, 国外DNS)
+
+	// 获取基准IP列表
+	benchmarkIPs := make(map[string]bool)
+	for _, r := range benchmarkResults {
+		if r.Error == nil {
+			for _, rec := range r.Records {
+				if rec.Type == "A" {
+					benchmarkIPs[rec.Value] = true
+				}
+			}
+		}
+	}
+
+	// 查询所有DNS服务器
+	var wg sync.WaitGroup
+	results := make([]ProbeResult, len(dnsServers))
+
+	for i, server := range dnsServers {
+		wg.Add(1)
+		go func(idx int, srv string) {
+			defer wg.Done()
+			result := ProbeDNS(domain, srv)
+
+			// 检测污染
+			if result.Error == nil && len(benchmarkIPs) > 0 {
+				for _, rec := range result.Records {
+					if rec.Type == "A" && !benchmarkIPs[rec.Value] {
+						result.IsPolluted = true
+						break
+					}
+				}
+			}
+
+			results[idx] = result
+		}(i, server)
+	}
+
+	wg.Wait()
+	return results
+}
+
 // ProbeAllRecordTypes 并发拨测所有DNS服务器（查询所有记录类型）
 func ProbeAllRecordTypes(domain string, dnsServers []string) []ProbeResult {
 	var wg sync.WaitGroup
@@ -500,6 +705,14 @@ func FormatText(results []ProbeResult) string {
 	for _, r := range results {
 		sb.WriteString(fmt.Sprintf("┌─ DNS服务器: %s\n", r.DNSServer))
 		sb.WriteString(fmt.Sprintf("│  查询耗时: %d ms\n", r.Latency.Milliseconds()))
+
+		if r.IsPolluted {
+			sb.WriteString("│  ⚠️  检测到DNS污染\n")
+		}
+
+		if r.DNSSECValid {
+			sb.WriteString("│  ✅ DNSSEC验证通过\n")
+		}
 
 		if r.Error != nil {
 			sb.WriteString(fmt.Sprintf("│  ❌ 错误: %s\n", r.Error.Error()))
@@ -546,15 +759,417 @@ func formatTTL(ttl uint32) string {
 	}
 }
 
+// JSONResult JSON输出格式
+type JSONResult struct {
+	Domain    string        `json:"domain"`
+	Timestamp string        `json:"timestamp"`
+	Servers   []JSONServer  `json:"servers"`
+}
+
+// JSONServer JSON服务器结果
+type JSONServer struct {
+	Server  string       `json:"server"`
+	Latency int64        `json:"latency_ms"`
+	Error   string       `json:"error,omitempty"`
+	Records []JSONRecord `json:"records,omitempty"`
+}
+
+// JSONRecord JSON记录
+type JSONRecord struct {
+	Type  string `json:"type"`
+	Name  string `json:"name"`
+	TTL   uint32 `json:"ttl"`
+	Value string `json:"value"`
+}
+
+// FormatJSON 格式化JSON输出
+func FormatJSON(results []ProbeResult) string {
+	jsonResult := JSONResult{
+		Domain:    results[0].Domain,
+		Timestamp: time.Now().Format("2006-01-02T15:04:05Z07:00"),
+	}
+
+	for _, r := range results {
+		server := JSONServer{
+			Server:  r.DNSServer,
+			Latency: r.Latency.Milliseconds(),
+		}
+
+		if r.Error != nil {
+			server.Error = r.Error.Error()
+		}
+
+		for _, rec := range r.Records {
+			server.Records = append(server.Records, JSONRecord{
+				Type:  rec.Type,
+				Name:  rec.Name,
+				TTL:   rec.TTL,
+				Value: rec.Value,
+			})
+		}
+
+		jsonResult.Servers = append(jsonResult.Servers, server)
+	}
+
+	jsonBytes, err := json.MarshalIndent(jsonResult, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"error": "failed to marshal JSON: %s"}`, err.Error())
+	}
+
+	return string(jsonBytes)
+}
+
+// ReadDomainsFromFile 从文件读取域名列表
+func ReadDomainsFromFile(filename string) ([]string, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var domains []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" && !strings.HasPrefix(line, "#") {
+			domains = append(domains, line)
+		}
+	}
+
+	return domains, scanner.Err()
+}
+
+// HistoryEntry 历史记录条目
+type HistoryEntry struct {
+	Timestamp string        `json:"timestamp"`
+	Domain    string        `json:"domain"`
+	Servers   []JSONServer  `json:"servers"`
+}
+
+// SaveHistory 保存历史记录
+func SaveHistory(domain string, results []ProbeResult) error {
+	// 获取用户主目录
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// 创建历史记录目录
+	historyDir := filepath.Join(homeDir, ".dns-probe")
+	if err := os.MkdirAll(historyDir, 0755); err != nil {
+		return err
+	}
+
+	// 读取现有历史记录
+	historyFile := filepath.Join(historyDir, "history.json")
+	var history []HistoryEntry
+
+	if data, err := os.ReadFile(historyFile); err == nil {
+		json.Unmarshal(data, &history)
+	}
+
+	// 创建新的历史记录条目
+	entry := HistoryEntry{
+		Timestamp: time.Now().Format("2006-01-02T15:04:05Z07:00"),
+		Domain:    domain,
+	}
+
+	for _, r := range results {
+		server := JSONServer{
+			Server:  r.DNSServer,
+			Latency: r.Latency.Milliseconds(),
+		}
+
+		if r.Error != nil {
+			server.Error = r.Error.Error()
+		}
+
+		for _, rec := range r.Records {
+			server.Records = append(server.Records, JSONRecord{
+				Type:  rec.Type,
+				Name:  rec.Name,
+				TTL:   rec.TTL,
+				Value: rec.Value,
+			})
+		}
+
+		entry.Servers = append(entry.Servers, server)
+	}
+
+	// 添加到历史记录
+	history = append(history, entry)
+
+	// 保存历史记录
+	data, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(historyFile, data, 0644)
+}
+
+// LoadHistory 加载历史记录
+func LoadHistory() ([]HistoryEntry, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	historyFile := filepath.Join(homeDir, ".dns-probe", "history.json")
+	data, err := os.ReadFile(historyFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var history []HistoryEntry
+	if err := json.Unmarshal(data, &history); err != nil {
+		return nil, err
+	}
+
+	return history, nil
+}
+
+// FormatHistory 格式化历史记录输出
+func FormatHistory(history []HistoryEntry) string {
+	var sb strings.Builder
+
+	sb.WriteString("查询历史:\n")
+	sb.WriteString(strings.Repeat("─", 60) + "\n")
+
+	for i, entry := range history {
+		sb.WriteString(fmt.Sprintf("[%d] %s - %s\n", i+1, entry.Timestamp, entry.Domain))
+		for _, server := range entry.Servers {
+			sb.WriteString(fmt.Sprintf("    DNS: %s, 耗时: %d ms\n", server.Server, server.Latency))
+		}
+	}
+
+	return sb.String()
+}
+
+// ProbeMultipleDomains 批量拨测多个域名
+func ProbeMultipleDomains(domains []string, dnsServers []string, queryAll bool) []JSONResult {
+	var results []JSONResult
+
+	for _, domain := range domains {
+		var probeResults []ProbeResult
+		if queryAll {
+			probeResults = ProbeAllRecordTypes(domain, dnsServers)
+		} else {
+			probeResults = ProbeAll(domain, dnsServers)
+		}
+
+		jsonResult := JSONResult{
+			Domain:    domain,
+			Timestamp: time.Now().Format("2006-01-02T15:04:05Z07:00"),
+		}
+
+		for _, r := range probeResults {
+			server := JSONServer{
+				Server:  r.DNSServer,
+				Latency: r.Latency.Milliseconds(),
+			}
+
+			if r.Error != nil {
+				server.Error = r.Error.Error()
+			}
+
+			for _, rec := range r.Records {
+				server.Records = append(server.Records, JSONRecord{
+					Type:  rec.Type,
+					Name:  rec.Name,
+					TTL:   rec.TTL,
+					Value: rec.Value,
+				})
+			}
+
+			jsonResult.Servers = append(jsonResult.Servers, server)
+		}
+
+		results = append(results, jsonResult)
+	}
+
+	return results
+}
+
+// FormatMultipleJSON 格式化多个域名的JSON输出
+func FormatMultipleJSON(results []JSONResult) string {
+	jsonBytes, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"error": "failed to marshal JSON: %s"}`, err.Error())
+	}
+
+	return string(jsonBytes)
+}
+
+// FormatHTML 格式化HTML输出
+func FormatHTML(results []ProbeResult) string {
+	var sb strings.Builder
+
+	sb.WriteString(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNS Probe Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .info {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        .server-card {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+        .server-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .server-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .latency {
+            color: #666;
+            font-size: 14px;
+        }
+        .pollution {
+            background: #fff3cd;
+            color: #856404;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #667eea;
+            color: white;
+        }
+        tr:hover {
+            background: #f5f5f5;
+        }
+        .type {
+            font-weight: bold;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DNS Probe Report</h1>
+        <div class="info">
+            <p>域名: ` + results[0].Domain + `</p>
+            <p>时间: ` + time.Now().Format("2006-01-02 15:04:05") + `</p>
+        </div>
+`)
+
+	for _, r := range results {
+		sb.WriteString(`        <div class="server-card">
+            <div class="server-header">
+                <span class="server-name">` + r.DNSServer + `</span>
+                <span class="latency">` + fmt.Sprintf("%d ms", r.Latency.Milliseconds()) + `</span>
+            </div>
+`)
+
+		if r.IsPolluted {
+			sb.WriteString(`            <div class="pollution">⚠️ 检测到DNS污染</div>
+`)
+		}
+
+		if r.Error != nil {
+			sb.WriteString(`            <div class="error">❌ 错误: ` + r.Error.Error() + `</div>
+`)
+		} else if len(r.Records) > 0 {
+			sb.WriteString(`            <table>
+                <tr>
+                    <th>类型</th>
+                    <th>TTL</th>
+                    <th>值</th>
+                </tr>
+`)
+			for _, rec := range r.Records {
+				ttlStr := formatTTL(rec.TTL)
+				sb.WriteString(`                <tr>
+                    <td class="type">` + rec.Type + `</td>
+                    <td>` + ttlStr + `</td>
+                    <td>` + rec.Value + `</td>
+                </tr>
+`)
+			}
+			sb.WriteString(`            </table>
+`)
+		} else {
+			sb.WriteString(`            <p>(无记录)</p>
+`)
+		}
+
+		sb.WriteString(`        </div>
+`)
+	}
+
+	sb.WriteString(`    </div>
+</body>
+</html>`)
+
+	return sb.String()
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "用法: dns-probe <域名> [DNS服务器...] [--all]\n")
+		fmt.Fprintf(os.Stderr, "用法: dns-probe <域名> [DNS服务器...] [--all] [--json] [--tui] [--pollution] [--html <文件>] [--file <文件>] [--history]\n")
 		fmt.Fprintf(os.Stderr, "\n示例:\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com                    # 使用系统DNS服务器查询A记录\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8            # 使用指定DNS服务器查询A记录\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8 114.114.114.114  # 使用多个DNS服务器查询A记录\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --all              # 使用系统DNS服务器查询所有记录类型\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8 --all      # 使用指定DNS服务器查询所有记录类型\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --json             # 输出JSON格式\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --all --json       # 输出JSON格式（所有记录类型）\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --tui              # TUI交互界面\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --pollution        # 检测DNS污染\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --html report.html # 生成HTML报告\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt             # 批量查询文件中的域名\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt --json      # 批量查询并输出JSON格式\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe --history                      # 显示查询历史\n")
 		fmt.Fprintf(os.Stderr, "\n系统DNS服务器:\n")
 		for _, s := range DefaultDNSServers {
 			fmt.Fprintf(os.Stderr, "  %s\n", s)
@@ -562,29 +1177,143 @@ func main() {
 		os.Exit(1)
 	}
 
-	domain := os.Args[1]
+	domain := ""
 	dnsServers := DefaultDNSServers
 	queryAll := false
+	outputJSON := false
+	filePath := ""
+	checkPollution := false
+	useTUI := false
+	htmlFile := ""
+	showHistory := false
 
 	// 解析参数
-	for i := 2; i < len(os.Args); i++ {
+	for i := 1; i < len(os.Args); i++ {
 		if os.Args[i] == "--all" {
 			queryAll = true
-		} else {
-			// 如果不是--all参数，则认为是DNS服务器
-			if i == 2 {
-				dnsServers = []string{}
+		} else if os.Args[i] == "--json" {
+			outputJSON = true
+		} else if os.Args[i] == "--pollution" {
+			checkPollution = true
+		} else if os.Args[i] == "--tui" {
+			useTUI = true
+		} else if os.Args[i] == "--history" {
+			showHistory = true
+		} else if os.Args[i] == "--html" {
+			if i+1 < len(os.Args) {
+				htmlFile = os.Args[i+1]
+				i++
+			} else {
+				fmt.Fprintf(os.Stderr, "错误: --html 参数需要指定文件名\n")
+				os.Exit(1)
 			}
+		} else if os.Args[i] == "--file" {
+			if i+1 < len(os.Args) {
+				filePath = os.Args[i+1]
+				i++
+			} else {
+				fmt.Fprintf(os.Stderr, "错误: --file 参数需要指定文件名\n")
+				os.Exit(1)
+			}
+		} else if i == 1 && !strings.HasPrefix(os.Args[i], "--") {
+			domain = os.Args[i]
+		} else {
 			dnsServers = append(dnsServers, os.Args[i])
 		}
 	}
 
+	// 显示历史记录
+	if showHistory {
+		history, err := LoadHistory()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误: 读取历史记录失败: %s\n", err.Error())
+			os.Exit(1)
+		}
+		fmt.Print(FormatHistory(history))
+		return
+	}
+
+	// TUI模式
+	if useTUI {
+		if domain == "" {
+			fmt.Fprintf(os.Stderr, "错误: TUI模式需要指定域名\n")
+			os.Exit(1)
+		}
+		RunTUI(domain, dnsServers, queryAll)
+		return
+	}
+
+	// 批量查询模式
+	if filePath != "" {
+		domains, err := ReadDomainsFromFile(filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误: 读取文件失败: %s\n", err.Error())
+			os.Exit(1)
+		}
+
+		if len(domains) == 0 {
+			fmt.Fprintf(os.Stderr, "错误: 文件中没有域名\n")
+			os.Exit(1)
+		}
+
+		results := ProbeMultipleDomains(domains, dnsServers, queryAll)
+		if outputJSON {
+			fmt.Println(FormatMultipleJSON(results))
+		} else {
+			for _, result := range results {
+				fmt.Printf("域名: %s\n", result.Domain)
+				for _, server := range result.Servers {
+					fmt.Printf("  DNS服务器: %s\n", server.Server)
+					fmt.Printf("  查询耗时: %d ms\n", server.Latency)
+					if server.Error != "" {
+						fmt.Printf("  错误: %s\n", server.Error)
+					} else {
+						for _, rec := range server.Records {
+							fmt.Printf("    %-10s %-6d %s\n", rec.Type, rec.TTL, rec.Value)
+						}
+					}
+				}
+				fmt.Println()
+			}
+		}
+		return
+	}
+
+	// 单域名查询模式
+	if domain == "" {
+		fmt.Fprintf(os.Stderr, "错误: 请指定域名或使用 --file 参数\n")
+		os.Exit(1)
+	}
+
 	var results []ProbeResult
-	if queryAll {
+	if checkPollution {
+		results = ProbeAllWithPollutionCheck(domain, dnsServers)
+	} else if queryAll {
 		results = ProbeAllRecordTypes(domain, dnsServers)
 	} else {
 		results = ProbeAll(domain, dnsServers)
 	}
 
-	fmt.Print(FormatText(results))
+	// 保存历史记录
+	if err := SaveHistory(domain, results); err != nil {
+		fmt.Fprintf(os.Stderr, "警告: 保存历史记录失败: %s\n", err.Error())
+	}
+
+	// HTML报告
+	if htmlFile != "" {
+		html := FormatHTML(results)
+		err := os.WriteFile(htmlFile, []byte(html), 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误: 写入HTML文件失败: %s\n", err.Error())
+			os.Exit(1)
+		}
+		fmt.Printf("HTML报告已生成: %s\n", htmlFile)
+		return
+	}
+
+	if outputJSON {
+		fmt.Println(FormatJSON(results))
+	} else {
+		fmt.Print(FormatText(results))
+	}
 }

@@ -1,0 +1,4 @@
+# 测试域名列表
+baidu.com
+google.com
+github.com

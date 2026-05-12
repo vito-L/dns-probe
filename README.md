@@ -11,6 +11,14 @@
 - 支持自定义DNS服务器
 - 跨平台支持（Windows/Linux/macOS）
 - 跨架构支持（amd64/arm64）
+- JSON格式输出（--json）
+- TUI交互界面（--tui）
+- DNS污染检测（--pollution）
+- HTML报告生成（--html）
+- 批量域名查询（--file）
+- 查询历史记录（--history）
+- DNSSEC验证
+- DoH/DoT支持
 
 ## 支持的系统
 
@@ -59,6 +67,54 @@
 ./dns-probe example.com 8.8.8.8 --all
 ```
 
+### JSON格式输出
+
+```bash
+# 输出JSON格式
+./dns-probe example.com --json
+
+# 输出JSON格式（所有记录类型）
+./dns-probe example.com --all --json
+```
+
+### TUI交互界面
+
+```bash
+# 启动TUI交互界面
+./dns-probe example.com --tui
+```
+
+### DNS污染检测
+
+```bash
+# 检测DNS污染
+./dns-probe example.com --pollution
+```
+
+### HTML报告生成
+
+```bash
+# 生成HTML报告
+./dns-probe example.com --html report.html
+```
+
+### 批量域名查询
+
+```bash
+# 批量查询文件中的域名
+./dns-probe --file domains.txt
+
+# 批量查询并输出JSON格式
+./dns-probe --file domains.txt --json
+```
+
+### 查询历史记录
+
+```bash
+# 显示查询历史
+./dns-probe --history
+```
+
 ### Linux系统使用
 
 ```bash
@@ -94,6 +150,8 @@ chmod +x dns-probe-linux-arm64
 
 ## 输出示例
 
+### 默认输出（A记录）
+
 ```
 ╔══════════════════════════════════════════════════════════════════╗
 ║                    DNS Probe Tool v1.0                          ║
@@ -113,6 +171,67 @@ chmod +x dns-probe-linux-arm64
 │  A          4m     124.237.177.164
 └──────────────────────────────────────────────────────────────────
 ```
+
+### JSON输出
+
+```json
+{
+  "domain": "baidu.com",
+  "timestamp": "2026-05-12T22:55:09+08:00",
+  "servers": [
+    {
+      "server": "8.8.8.8",
+      "latency_ms": 267,
+      "records": [
+        {
+          "type": "A",
+          "name": "baidu.com.",
+          "ttl": 580,
+          "value": "124.237.177.164"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### DNS污染检测
+
+```
+┌─ DNS服务器: 8.8.8.8
+│  查询耗时: 192 ms
+│  ⚠️  检测到DNS污染
+│
+│  类型         TTL    值
+│  ────────────────────────────────────────────────────────────
+│  A          1m     142.250.73.142
+└──────────────────────────────────────────────────────────────────
+```
+
+### 查询历史
+
+```
+查询历史:
+────────────────────────────────────────────────────────────
+[1] 2026-05-12T23:14:32+08:00 - baidu.com
+    DNS: 8.8.8.8, 耗时: 205 ms
+[2] 2026-05-12T23:15:01+08:00 - google.com
+    DNS: 8.8.8.8, 耗时: 192 ms
+```
+
+## 命令行参数
+
+| 参数 | 说明 |
+|------|------|
+| `<域名>` | 要查询的域名 |
+| `[DNS服务器...]` | 指定DNS服务器（可选） |
+| `--all` | 查询所有记录类型 |
+| `--json` | 输出JSON格式 |
+| `--tui` | 启动TUI交互界面 |
+| `--pollution` | 检测DNS污染 |
+| `--html <文件>` | 生成HTML报告 |
+| `--file <文件>` | 批量查询文件中的域名 |
+| `--history` | 显示查询历史 |
 
 ## 系统DNS服务器
 
@@ -163,6 +282,8 @@ GOOS=darwin GOARCH=arm64 go build -o dns-probe-darwin-arm64 .
 
 - Go 1.21+
 - github.com/miekg/dns
+- github.com/charmbracelet/bubbletea
+- github.com/charmbracelet/lipgloss
 
 ## 许可证
 
