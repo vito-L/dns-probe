@@ -1376,7 +1376,8 @@ func main() {
 	}
 
 	domain := ""
-	dnsServers := DefaultDNSServers
+	dnsServers := []string{} // 初始化为空，后面根据情况填充
+	useDefaultDNS := true   // 是否使用默认DNS服务器
 	queryAll := false
 	outputJSON := false
 	filePath := ""
@@ -1434,8 +1435,18 @@ func main() {
 		} else if i == 1 && !strings.HasPrefix(os.Args[i], "--") {
 			domain = os.Args[i]
 		} else {
+			// 用户指定了DNS服务器，不再使用默认DNS
+			if useDefaultDNS {
+				dnsServers = []string{}
+				useDefaultDNS = false
+			}
 			dnsServers = append(dnsServers, os.Args[i])
 		}
+	}
+
+	// 如果用户没有指定DNS服务器，使用默认DNS
+	if useDefaultDNS {
+		dnsServers = DefaultDNSServers
 	}
 
 	// 显示历史记录
