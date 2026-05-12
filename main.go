@@ -686,7 +686,7 @@ func parseRecord(answer dns.RR) DNSRecord {
 	case *dns.DS:
 		record.Value = fmt.Sprintf("%d %d %d %s", v.KeyTag, v.Algorithm, v.DigestType, v.Digest)
 	case *dns.NSEC:
-		record.Value = fmt.Sprintf("%s %s", v.NextDomain, v.TypeBitMap)
+		record.Value = fmt.Sprintf("%s %v", v.NextDomain, v.TypeBitMap)
 	case *dns.NSEC3:
 		record.Value = fmt.Sprintf("%d %d %d %s %s", v.Hash, v.Flags, v.Iterations, v.Salt, v.NextDomain)
 	case *dns.RRSIG:
@@ -720,7 +720,7 @@ func parseRecord(answer dns.RR) DNSRecord {
 			v.Version, v.Size, v.HorizPre, v.VertPre,
 			v.Latitude, v.Longitude, v.Altitude)
 	case *dns.NXT:
-		record.Value = fmt.Sprintf("%s %s", v.NextDomain, v.TypeBitMap)
+		record.Value = fmt.Sprintf("%s %v", v.NextDomain, v.TypeBitMap)
 	case *dns.NAPTR:
 		record.Value = fmt.Sprintf("%d %d \"%s\" \"%s\" \"%s\" %s",
 			v.Order, v.Preference, v.Flags, v.Service, v.Regexp, v.Replacement)
@@ -755,7 +755,7 @@ func parseRecord(answer dns.RR) DNSRecord {
 	case *dns.OPENPGPKEY:
 		record.Value = v.PublicKey
 	case *dns.CSYNC:
-		record.Value = fmt.Sprintf("%d %d %s", v.Serial, v.Flags, v.TypeBitMap)
+		record.Value = fmt.Sprintf("%d %d %v", v.Serial, v.Flags, v.TypeBitMap)
 	case *dns.ZONEMD:
 		record.Value = fmt.Sprintf("%d %d %d %s", v.Scheme, v.Hash, v.Serial, v.Digest)
 	case *dns.SVCB:

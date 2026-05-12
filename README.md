@@ -302,6 +302,55 @@ GOOS=darwin GOARCH=arm64 go build -o dns-probe-darwin-arm64 .
 - [Go](https://golang.org) 1.21+
 - [miekg/dns](https://github.com/miekg/dns)
 
+## 🧪 测试
+
+所有测试用例已通过：
+
+```bash
+$ go test -v ./...
+
+=== RUN   TestRecordTypeName
+--- PASS: TestRecordTypeName (0.00s)
+=== RUN   TestFormatTTL
+--- PASS: TestFormatTTL (0.00s)
+=== RUN   TestGetSystemDNSServers
+--- PASS: TestGetSystemDNSServers (0.02s)
+=== RUN   TestProbeDNS
+--- PASS: TestProbeDNS (0.19s)
+=== RUN   TestProbeDNSInvalidDomain
+--- PASS: TestProbeDNSInvalidDomain (0.21s)
+=== RUN   TestProbeAll
+--- PASS: TestProbeAll (0.25s)
+=== RUN   TestProbeAllRecordTypes
+--- PASS: TestProbeAllRecordTypes (2.00s)
+=== RUN   TestFormatText
+--- PASS: TestFormatText (0.01s)
+=== RUN   TestFormatJSON
+--- PASS: TestFormatJSON (0.00s)
+=== RUN   TestReadDomainsFromFile
+--- PASS: TestReadDomainsFromFile (0.01s)
+=== RUN   TestReadDomainsFromFileNotFound
+--- PASS: TestReadDomainsFromFileNotFound (0.00s)
+=== RUN   TestSaveAndLoadHistory
+--- PASS: TestSaveAndLoadHistory (0.01s)
+=== RUN   TestFormatHistory
+--- PASS: TestFormatHistory (0.00s)
+=== RUN   TestProbeDoH
+--- PASS: TestProbeDoH (0.19s)
+=== RUN   TestProbeDoT
+--- PASS: TestProbeDoT (0.05s)
+=== RUN   TestDNSSECValidation
+--- PASS: TestDNSSECValidation (0.20s)
+=== RUN   TestPollutionDetection
+--- PASS: TestPollutionDetection (0.42s)
+=== RUN   TestMultipleDomains
+--- PASS: TestMultipleDomains (0.41s)
+=== RUN   TestFormatMultipleJSON
+--- PASS: TestFormatMultipleJSON (0.00s)
+PASS
+ok  	github.com/vito-L/dns-probe	5.264s
+```
+
 ## 📄 许可证
 
 [MIT License](LICENSE)
