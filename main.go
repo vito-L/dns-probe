@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -313,15 +314,26 @@ func probeDoH(domain, dohServer string) ProbeResult {
 		return result
 	}
 
+	// 获取代理设置
+	proxyURL := getProxyURL()
+
 	// 发送DoH请求
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: false,
-			},
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: false,
 		},
 	}
+
+	// 如果有代理，设置代理
+	if proxyURL != nil {
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
+
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+	}
+
 	req, err := http.NewRequest("POST", dohServer, bytes.NewReader(pack))
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create request: %s", err.Error())
@@ -393,6 +405,30 @@ func probeDoH(domain, dohServer string) ProbeResult {
 	return result
 }
 
+// getProxyURL 获取代理URL
+func getProxyURL() *url.URL {
+	// 检查环境变量中的代理设置
+	proxyEnv := os.Getenv("https_proxy")
+	if proxyEnv == "" {
+		proxyEnv = os.Getenv("http_proxy")
+	}
+	if proxyEnv == "" {
+		proxyEnv = os.Getenv("HTTPS_PROXY")
+	}
+	if proxyEnv == "" {
+		proxyEnv = os.Getenv("HTTP_PROXY")
+	}
+
+	if proxyEnv != "" {
+		proxyURL, err := url.Parse(proxyEnv)
+		if err == nil {
+			return proxyURL
+		}
+	}
+
+	return nil
+}
+
 // probeDoT DNS over TLS查询
 func probeDoT(domain, dotServer string) ProbeResult {
 	result := ProbeResult{
@@ -408,47 +444,134 @@ func probeDoT(domain, dotServer string) ProbeResult {
 	m.RecursionDesired = true
 	m.SetEdns0(4096, true) // 设置DO位
 
+	// 获取代理设置
+	proxyURL := getProxyURL()
+
 	// 使用DNS客户端
 	c := new(dns.Client)
 	c.Net = "tcp-tls"
-	c.Timeout = 10 * time.Second
+	c.Timeout = 30 * time.Second
 	c.TLSConfig = &tls.Config{
 		InsecureSkipVerify: false,
+		ServerName:         strings.Split(dotServer, ":")[0],
 	}
 
-	r, _, err := c.Exchange(m, dotServer)
-	if err != nil {
-		result.Error = fmt.Errorf("failed to query DoT server: %s", err.Error())
-		result.Latency = time.Since(start)
-		return result
-	}
+	// 如果有代理，使用代理连接
+	if proxyURL != nil {
+		// 通过代理建立TCP连接
+		conn, err := net.DialTimeout("tcp", proxyURL.Host, 30*time.Second)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to connect to proxy: %s", err.Error())
+			result.Latency = time.Since(start)
+			return result
+		}
 
-	if r.Rcode != dns.RcodeSuccess {
-		result.Error = fmt.Errorf("DNS query failed: %s", dns.RcodeToString[r.Rcode])
-		result.Latency = time.Since(start)
-		return result
-	}
+		// 发送CONNECT请求
+		connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", dotServer, dotServer)
+		_, err = conn.Write([]byte(connectReq))
+		if err != nil {
+			result.Error = fmt.Errorf("failed to send CONNECT request: %s", err.Error())
+			result.Latency = time.Since(start)
+			return result
+		}
 
-	// 检查DNSSEC验证状态
-	if r.AuthenticatedData {
-		result.DNSSECValid = true
-	}
+		// 读取响应
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to read CONNECT response: %s", err.Error())
+			result.Latency = time.Since(start)
+			return result
+		}
 
-	// 检查是否有RRSIG记录
-	for _, answer := range r.Answer {
-		if _, ok := answer.(*dns.RRSIG); ok {
+		response := string(buf[:n])
+		if !strings.Contains(response, "200") {
+			result.Error = fmt.Errorf("CONNECT request failed: %s", response)
+			result.Latency = time.Since(start)
+			return result
+		}
+
+		// 建立TLS连接
+		tlsConn := tls.Client(conn, c.TLSConfig)
+		err = tlsConn.Handshake()
+		if err != nil {
+			result.Error = fmt.Errorf("TLS handshake failed: %s", err.Error())
+			result.Latency = time.Since(start)
+			return result
+		}
+
+		// 使用TLS连接发送DNS查询
+		dnsConn := &dns.Conn{Conn: tlsConn}
+		r, _, err := c.ExchangeWithConn(m, dnsConn)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to query DoT server: %s", err.Error())
+			result.Latency = time.Since(start)
+			return result
+		}
+
+		if r.Rcode != dns.RcodeSuccess {
+			result.Error = fmt.Errorf("DNS query failed: %s", dns.RcodeToString[r.Rcode])
+			result.Latency = time.Since(start)
+			return result
+		}
+
+		// 检查DNSSEC验证状态
+		if r.AuthenticatedData {
 			result.DNSSECValid = true
-			break
 		}
-	}
 
-	// 解析A记录结果
-	for _, answer := range r.Answer {
-		if _, ok := answer.(*dns.RRSIG); ok {
-			continue // 跳过RRSIG记录
+		// 检查是否有RRSIG记录
+		for _, answer := range r.Answer {
+			if _, ok := answer.(*dns.RRSIG); ok {
+				result.DNSSECValid = true
+				break
+			}
 		}
-		record := parseRecord(answer)
-		result.Records = append(result.Records, record)
+
+		// 解析A记录结果
+		for _, answer := range r.Answer {
+			if _, ok := answer.(*dns.RRSIG); ok {
+				continue // 跳过RRSIG记录
+			}
+			record := parseRecord(answer)
+			result.Records = append(result.Records, record)
+		}
+	} else {
+		// 直接连接
+		r, _, err := c.Exchange(m, dotServer)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to query DoT server: %s", err.Error())
+			result.Latency = time.Since(start)
+			return result
+		}
+
+		if r.Rcode != dns.RcodeSuccess {
+			result.Error = fmt.Errorf("DNS query failed: %s", dns.RcodeToString[r.Rcode])
+			result.Latency = time.Since(start)
+			return result
+		}
+
+		// 检查DNSSEC验证状态
+		if r.AuthenticatedData {
+			result.DNSSECValid = true
+		}
+
+		// 检查是否有RRSIG记录
+		for _, answer := range r.Answer {
+			if _, ok := answer.(*dns.RRSIG); ok {
+				result.DNSSECValid = true
+				break
+			}
+		}
+
+		// 解析A记录结果
+		for _, answer := range r.Answer {
+			if _, ok := answer.(*dns.RRSIG); ok {
+				continue // 跳过RRSIG记录
+			}
+			record := parseRecord(answer)
+			result.Records = append(result.Records, record)
+		}
 	}
 
 	result.Latency = time.Since(start)
@@ -1228,7 +1351,7 @@ func FormatHTML(results []ProbeResult) string {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "用法: dns-probe <域名> [DNS服务器...] [--all] [--json] [--pollution] [--html <文件>] [--file <文件>] [--history]\n")
+		fmt.Fprintf(os.Stderr, "用法: dns-probe <域名> [DNS服务器...] [--all] [--json] [--pollution] [--dnssec] [--doh <url>] [--dot <server>] [--html <文件>] [--file <文件>] [--history]\n")
 		fmt.Fprintf(os.Stderr, "\n示例:\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com                    # 使用系统DNS服务器查询A记录\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8            # 使用指定DNS服务器查询A记录\n")
@@ -1238,6 +1361,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --json             # 输出JSON格式\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --all --json       # 输出JSON格式（所有记录类型）\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --pollution        # 检测DNS污染\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dnssec           # 启用DNSSEC验证\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --doh https://dns.google/dns-query  # 使用DoH服务器\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dot 8.8.8.8:853  # 使用DoT服务器\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --html report.html # 生成HTML报告\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt             # 批量查询文件中的域名\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt --json      # 批量查询并输出JSON格式\n")
@@ -1255,6 +1381,8 @@ func main() {
 	outputJSON := false
 	filePath := ""
 	checkPollution := false
+	dohServer := ""
+	dotServer := ""
 	htmlFile := ""
 	showHistory := false
 
@@ -1266,6 +1394,22 @@ func main() {
 			outputJSON = true
 		} else if os.Args[i] == "--pollution" {
 			checkPollution = true
+		} else if os.Args[i] == "--doh" {
+			if i+1 < len(os.Args) {
+				dohServer = os.Args[i+1]
+				i++
+			} else {
+				fmt.Fprintf(os.Stderr, "错误: --doh 参数需要指定URL\n")
+				os.Exit(1)
+			}
+		} else if os.Args[i] == "--dot" {
+			if i+1 < len(os.Args) {
+				dotServer = os.Args[i+1]
+				i++
+			} else {
+				fmt.Fprintf(os.Stderr, "错误: --dot 参数需要指定服务器\n")
+				os.Exit(1)
+			}
 		} else if os.Args[i] == "--history" {
 			showHistory = true
 		} else if os.Args[i] == "--html" {
@@ -1342,6 +1486,14 @@ func main() {
 	if domain == "" {
 		fmt.Fprintf(os.Stderr, "错误: 请指定域名或使用 --file 参数\n")
 		os.Exit(1)
+	}
+
+	// 如果指定了DoH或DoT服务器，添加到DNS服务器列表
+	if dohServer != "" {
+		dnsServers = []string{dohServer}
+	}
+	if dotServer != "" {
+		dnsServers = []string{dotServer}
 	}
 
 	var results []ProbeResult
