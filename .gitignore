@@ -1,0 +1,18 @@
+# Binaries
+dns-probe
+dns-probe.exe
+dns-probe-*
+
+# Go
+go.sum
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
