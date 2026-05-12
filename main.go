@@ -21,6 +21,22 @@ import (
 	"github.com/miekg/dns"
 )
 
+// 样式定义
+var (
+	warningStyle = &styleFunc{color: "11"}
+	successStyle = &styleFunc{color: "10"}
+	errorStyle   = &styleFunc{color: "9"}
+	infoStyle    = &styleFunc{color: "12"}
+)
+
+type styleFunc struct {
+	color string
+}
+
+func (s *styleFunc) Render(text string) string {
+	return text
+}
+
 // GetSystemDNSServers 获取系统DNS服务器
 func GetSystemDNSServers() []string {
 	// Windows系统
@@ -201,6 +217,8 @@ type ProbeResult struct {
 	Latency     time.Duration
 	Error       error
 	IsPolluted  bool
+	PollutedIP  string
+	RealIP      string
 	DNSSECValid bool
 }
 
@@ -634,11 +652,15 @@ func ProbeAllWithPollutionCheck(domain string, dnsServers []string) []ProbeResul
 
 	// 获取基准IP列表
 	benchmarkIPs := make(map[string]bool)
+	var realIP string
 	for _, r := range benchmarkResults {
 		if r.Error == nil {
 			for _, rec := range r.Records {
 				if rec.Type == "A" {
 					benchmarkIPs[rec.Value] = true
+					if realIP == "" {
+						realIP = rec.Value
+					}
 				}
 			}
 		}
@@ -659,6 +681,8 @@ func ProbeAllWithPollutionCheck(domain string, dnsServers []string) []ProbeResul
 				for _, rec := range result.Records {
 					if rec.Type == "A" && !benchmarkIPs[rec.Value] {
 						result.IsPolluted = true
+						result.PollutedIP = rec.Value
+						result.RealIP = realIP
 						break
 					}
 				}
@@ -707,11 +731,17 @@ func FormatText(results []ProbeResult) string {
 		sb.WriteString(fmt.Sprintf("│  查询耗时: %d ms\n", r.Latency.Milliseconds()))
 
 		if r.IsPolluted {
-			sb.WriteString("│  ⚠️  检测到DNS污染\n")
+			sb.WriteString(warningStyle.Render("│  ⚠️  检测到DNS污染"))
+			sb.WriteString("\n")
+			sb.WriteString(warningStyle.Render(fmt.Sprintf("│  被污染的IP: %s", r.PollutedIP)))
+			sb.WriteString("\n")
+			sb.WriteString(warningStyle.Render(fmt.Sprintf("│  真实IP（国外DNS）: %s", r.RealIP)))
+			sb.WriteString("\n")
 		}
 
 		if r.DNSSECValid {
-			sb.WriteString("│  ✅ DNSSEC验证通过\n")
+			sb.WriteString(successStyle.Render("│  ✅ DNSSEC验证通过"))
+			sb.WriteString("\n")
 		}
 
 		if r.Error != nil {
@@ -1155,7 +1185,7 @@ func FormatHTML(results []ProbeResult) string {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "用法: dns-probe <域名> [DNS服务器...] [--all] [--json] [--tui] [--pollution] [--html <文件>] [--file <文件>] [--history]\n")
+		fmt.Fprintf(os.Stderr, "用法: dns-probe <域名> [DNS服务器...] [--all] [--json] [--pollution] [--html <文件>] [--file <文件>] [--history]\n")
 		fmt.Fprintf(os.Stderr, "\n示例:\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com                    # 使用系统DNS服务器查询A记录\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8            # 使用指定DNS服务器查询A记录\n")
@@ -1164,7 +1194,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8 --all      # 使用指定DNS服务器查询所有记录类型\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --json             # 输出JSON格式\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --all --json       # 输出JSON格式（所有记录类型）\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --tui              # TUI交互界面\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --pollution        # 检测DNS污染\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe example.com --html report.html # 生成HTML报告\n")
 		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt             # 批量查询文件中的域名\n")
@@ -1183,7 +1212,6 @@ func main() {
 	outputJSON := false
 	filePath := ""
 	checkPollution := false
-	useTUI := false
 	htmlFile := ""
 	showHistory := false
 
@@ -1195,8 +1223,6 @@ func main() {
 			outputJSON = true
 		} else if os.Args[i] == "--pollution" {
 			checkPollution = true
-		} else if os.Args[i] == "--tui" {
-			useTUI = true
 		} else if os.Args[i] == "--history" {
 			showHistory = true
 		} else if os.Args[i] == "--html" {
@@ -1230,16 +1256,6 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Print(FormatHistory(history))
-		return
-	}
-
-	// TUI模式
-	if useTUI {
-		if domain == "" {
-			fmt.Fprintf(os.Stderr, "错误: TUI模式需要指定域名\n")
-			os.Exit(1)
-		}
-		RunTUI(domain, dnsServers, queryAll)
 		return
 	}
 

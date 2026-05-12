@@ -12,7 +12,6 @@
 - 跨平台支持（Windows/Linux/macOS）
 - 跨架构支持（amd64/arm64）
 - JSON格式输出（--json）
-- TUI交互界面（--tui）
 - DNS污染检测（--pollution）
 - HTML报告生成（--html）
 - 批量域名查询（--file）
@@ -77,18 +76,25 @@
 ./dns-probe example.com --all --json
 ```
 
-### TUI交互界面
-
-```bash
-# 启动TUI交互界面
-./dns-probe example.com --tui
-```
-
 ### DNS污染检测
 
 ```bash
 # 检测DNS污染
 ./dns-probe example.com --pollution
+```
+
+输出示例：
+```
+┌─ DNS服务器: 114.114.114.114
+│  查询耗时: 23 ms
+│  ⚠️  检测到DNS污染
+│  被污染的IP: 1.2.3.4
+│  真实IP（国外DNS）: 142.250.73.78
+│
+│  类型         TTL    值
+│  ────────────────────────────────────────────────────────────
+│  A          1m     1.2.3.4
+└──────────────────────────────────────────────────────────────────
 ```
 
 ### HTML报告生成
@@ -195,19 +201,6 @@ chmod +x dns-probe-linux-arm64
 }
 ```
 
-### DNS污染检测
-
-```
-┌─ DNS服务器: 8.8.8.8
-│  查询耗时: 192 ms
-│  ⚠️  检测到DNS污染
-│
-│  类型         TTL    值
-│  ────────────────────────────────────────────────────────────
-│  A          1m     142.250.73.142
-└──────────────────────────────────────────────────────────────────
-```
-
 ### 查询历史
 
 ```
@@ -227,7 +220,6 @@ chmod +x dns-probe-linux-arm64
 | `[DNS服务器...]` | 指定DNS服务器（可选） |
 | `--all` | 查询所有记录类型 |
 | `--json` | 输出JSON格式 |
-| `--tui` | 启动TUI交互界面 |
 | `--pollution` | 检测DNS污染 |
 | `--html <文件>` | 生成HTML报告 |
 | `--file <文件>` | 批量查询文件中的域名 |
@@ -282,8 +274,6 @@ GOOS=darwin GOARCH=arm64 go build -o dns-probe-darwin-arm64 .
 
 - Go 1.21+
 - github.com/miekg/dns
-- github.com/charmbracelet/bubbletea
-- github.com/charmbracelet/lipgloss
 
 ## 许可证
 
