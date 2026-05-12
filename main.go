@@ -245,11 +245,12 @@ func ProbeDNS(domain, dnsServer string) ProbeResult {
 
 	start := time.Now()
 
-	// 只查询A记录
+	// 查询A记录，设置DO位以获取DNSSEC信息
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
 	m.RecursionDesired = true
 	m.CheckingDisabled = false
+	m.SetEdns0(4096, true) // 设置DO位
 
 	r, _, err := c.Exchange(m, net.JoinHostPort(dnsServer, "53"))
 	if err != nil {
@@ -269,8 +270,19 @@ func ProbeDNS(domain, dnsServer string) ProbeResult {
 		result.DNSSECValid = true
 	}
 
+	// 检查是否有RRSIG记录
+	for _, answer := range r.Answer {
+		if _, ok := answer.(*dns.RRSIG); ok {
+			result.DNSSECValid = true
+			break
+		}
+	}
+
 	// 解析A记录结果
 	for _, answer := range r.Answer {
+		if _, ok := answer.(*dns.RRSIG); ok {
+			continue // 跳过RRSIG记录
+		}
 		record := parseRecord(answer)
 		result.Records = append(result.Records, record)
 	}
@@ -288,10 +300,11 @@ func probeDoH(domain, dohServer string) ProbeResult {
 
 	start := time.Now()
 
-	// 构建DNS查询
+	// 构建DNS查询，设置DO位
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
 	m.RecursionDesired = true
+	m.SetEdns0(4096, true) // 设置DO位
 
 	pack, err := m.Pack()
 	if err != nil {
@@ -301,7 +314,14 @@ func probeDoH(domain, dohServer string) ProbeResult {
 	}
 
 	// 发送DoH请求
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: false,
+			},
+		},
+	}
 	req, err := http.NewRequest("POST", dohServer, bytes.NewReader(pack))
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create request: %s", err.Error())
@@ -341,13 +361,30 @@ func probeDoH(domain, dohServer string) ProbeResult {
 		return result
 	}
 
+	if r.Rcode != dns.RcodeSuccess {
+		result.Error = fmt.Errorf("DNS query failed: %s", dns.RcodeToString[r.Rcode])
+		result.Latency = time.Since(start)
+		return result
+	}
+
 	// 检查DNSSEC验证状态
 	if r.AuthenticatedData {
 		result.DNSSECValid = true
 	}
 
+	// 检查是否有RRSIG记录
+	for _, answer := range r.Answer {
+		if _, ok := answer.(*dns.RRSIG); ok {
+			result.DNSSECValid = true
+			break
+		}
+	}
+
 	// 解析A记录结果
 	for _, answer := range r.Answer {
+		if _, ok := answer.(*dns.RRSIG); ok {
+			continue // 跳过RRSIG记录
+		}
 		record := parseRecord(answer)
 		result.Records = append(result.Records, record)
 	}
@@ -365,24 +402,19 @@ func probeDoT(domain, dotServer string) ProbeResult {
 
 	start := time.Now()
 
-	// 构建DNS查询
+	// 构建DNS查询，设置DO位
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
 	m.RecursionDesired = true
-
-	// 创建TLS连接
-	tlsConfig := &tls.Config{}
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", dotServer, tlsConfig)
-	if err != nil {
-		result.Error = fmt.Errorf("failed to connect to DoT server: %s", err.Error())
-		result.Latency = time.Since(start)
-		return result
-	}
-	defer conn.Close()
+	m.SetEdns0(4096, true) // 设置DO位
 
 	// 使用DNS客户端
 	c := new(dns.Client)
 	c.Net = "tcp-tls"
+	c.Timeout = 10 * time.Second
+	c.TLSConfig = &tls.Config{
+		InsecureSkipVerify: false,
+	}
 
 	r, _, err := c.Exchange(m, dotServer)
 	if err != nil {
@@ -402,8 +434,19 @@ func probeDoT(domain, dotServer string) ProbeResult {
 		result.DNSSECValid = true
 	}
 
+	// 检查是否有RRSIG记录
+	for _, answer := range r.Answer {
+		if _, ok := answer.(*dns.RRSIG); ok {
+			result.DNSSECValid = true
+			break
+		}
+	}
+
 	// 解析A记录结果
 	for _, answer := range r.Answer {
+		if _, ok := answer.(*dns.RRSIG); ok {
+			continue // 跳过RRSIG记录
+		}
 		record := parseRecord(answer)
 		result.Records = append(result.Records, record)
 	}
