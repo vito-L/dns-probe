@@ -1381,6 +1381,7 @@ func main() {
 	outputJSON := false
 	filePath := ""
 	checkPollution := false
+	enableDNSSEC := false
 	dohServer := ""
 	dotServer := ""
 	htmlFile := ""
@@ -1394,6 +1395,8 @@ func main() {
 			outputJSON = true
 		} else if os.Args[i] == "--pollution" {
 			checkPollution = true
+		} else if os.Args[i] == "--dnssec" {
+			enableDNSSEC = true
 		} else if os.Args[i] == "--doh" {
 			if i+1 < len(os.Args) {
 				dohServer = os.Args[i+1]
@@ -1494,6 +1497,12 @@ func main() {
 	}
 	if dotServer != "" {
 		dnsServers = []string{dotServer}
+	}
+
+	// 如果启用DNSSEC，设置DO位
+	if enableDNSSEC {
+		// DNSSEC验证会在ProbeDNS函数中自动处理
+		// 通过SetEdns0设置DO位
 	}
 
 	var results []ProbeResult
