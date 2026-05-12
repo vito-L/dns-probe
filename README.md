@@ -1,38 +1,47 @@
 # DNS Probe Tool
 
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/vito-L/dns-probe)](https://github.com/vito-L/dns-probe/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-brightgreen)]()
+[![Architecture](https://img.shields.io/badge/Architecture-amd64%20%7C%20arm64-orange)]()
+
 一个用Go语言编写的DNS拨测工具，支持多平台、多架构。
 
-## 功能特性
+## ✨ 功能特性
 
-- 并发拨测多个DNS服务器
-- 支持查询A记录（默认）和所有记录类型（--all）
-- 美化输出格式
-- 自动获取系统DNS服务器
-- 支持自定义DNS服务器
-- 跨平台支持（Windows/Linux/macOS）
-- 跨架构支持（amd64/arm64）
-- JSON格式输出（--json）
-- DNS污染检测（--pollution）
-- HTML报告生成（--html）
-- 批量域名查询（--file）
-- 查询历史记录（--history）
-- DNSSEC验证
-- DoH/DoT支持
+| 功能 | 说明 |
+|------|------|
+| 🔍 基本查询 | 并发拨测多个DNS服务器 |
+| 📊 记录类型 | 支持A/AAAA/CNAME/MX/NS/TXT/SOA/SRV/CAA/PTR等 |
+| 🎨 美化输出 | 终端友好的格式化输出 |
+| 🌐 自动检测 | 自动获取系统DNS服务器 |
+| 🔧 自定义 | 支持自定义DNS服务器 |
+| 💻 跨平台 | Windows/Linux/macOS |
+| 🏗️ 跨架构 | amd64/arm64 |
+| 📝 JSON输出 | `--json` 格式化输出 |
+| 🛡️ DNS污染检测 | `--pollution` 检测DNS污染 |
+| 🔐 DNSSEC验证 | `--dnssec` 验证DNSSEC签名 |
+| 🔒 DoH支持 | `--doh` DNS over HTTPS |
+| 🔒 DoT支持 | `--dot` DNS over TLS |
+| 📄 HTML报告 | `--html` 生成可视化报告 |
+| 📁 批量查询 | `--file` 批量查询域名 |
+| 📚 历史记录 | `--history` 查看查询历史 |
 
-## 支持的系统
+## 📦 支持的系统
 
 ### Windows
 
-| 架构             | 文件名                           | 说明            |
-| -------------- | ----------------------------- | ------------- |
-| amd64 (x86_64) | `dns-probe-windows-amd64.exe` | Windows 64位系统 |
+| 架构 | 文件名 | 说明 |
+|------|--------|------|
+| amd64 | `dns-probe-windows-amd64.exe` | Windows 64位系统 |
 
 ### Linux
 
-| 架构              | 文件名                     | 说明             |
-| --------------- | ----------------------- | -------------- |
-| amd64 (x86_64)  | `dns-probe-linux-amd64` | 大多数Linux发行版    |
-| arm64 (aarch64) | `dns-probe-linux-arm64` | ARM64架构（如国产系统） |
+| 架构 | 文件名 | 说明 |
+|------|--------|------|
+| amd64 | `dns-probe-linux-amd64` | 大多数Linux发行版 |
+| arm64 | `dns-probe-linux-arm64` | ARM64架构（如国产系统） |
 
 ### 支持的Linux发行版
 
@@ -48,35 +57,77 @@
 - Alpine Linux
 - 以及其他主流发行版
 
-## 使用方法
+## 🚀 快速开始
+
+### 下载
+
+```bash
+# Linux amd64
+wget https://github.com/vito-L/dns-probe/releases/latest/download/dns-probe-linux-amd64
+chmod +x dns-probe-linux-amd64
+
+# Linux arm64
+wget https://github.com/vito-L/dns-probe/releases/latest/download/dns-probe-linux-arm64
+chmod +x dns-probe-linux-arm64
+```
 
 ### 基本用法
 
 ```bash
-# 查询域名（使用系统DNS服务器，只查询A记录）
+# 使用系统DNS服务器查询A记录
 ./dns-probe example.com
 
-# 查询域名（指定DNS服务器）
+# 使用指定DNS服务器
 ./dns-probe example.com 8.8.8.8 114.114.114.114
 
 # 查询所有记录类型
 ./dns-probe example.com --all
-
-# 使用指定DNS服务器查询所有记录类型
-./dns-probe example.com 8.8.8.8 --all
 ```
 
-### JSON格式输出
+## 📖 使用方法
+
+### 命令行参数
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `<域名>` | 要查询的域名 | `example.com` |
+| `[DNS服务器...]` | 指定DNS服务器 | `8.8.8.8 114.114.114.114` |
+| `--all` | 查询所有记录类型 | `--all` |
+| `--json` | 输出JSON格式 | `--json` |
+| `--pollution` | 检测DNS污染 | `--pollution` |
+| `--dnssec` | 启用DNSSEC验证 | `--dnssec` |
+| `--doh <url>` | 使用DoH服务器 | `--doh https://dns.google/dns-query` |
+| `--dot <server>` | 使用DoT服务器 | `--dot dns.alidns.com:853` |
+| `--html <文件>` | 生成HTML报告 | `--html report.html` |
+| `--file <文件>` | 批量查询文件中的域名 | `--file domains.txt` |
+| `--history` | 显示查询历史 | `--history` |
+
+### 使用示例
+
+#### 基本查询
 
 ```bash
-# 输出JSON格式
-./dns-probe example.com --json
+# 使用系统DNS服务器
+./dns-probe example.com
 
-# 输出JSON格式（所有记录类型）
-./dns-probe example.com --all --json
+# 使用指定DNS服务器
+./dns-probe example.com 8.8.8.8
+
+# 使用多个DNS服务器
+./dns-probe example.com 8.8.8.8 114.114.114.114 223.5.5.5
 ```
 
-### DNS污染检测
+#### DNSSEC验证
+
+```bash
+# 使用系统DNS服务器进行DNSSEC验证
+./dns-probe example.com --dnssec
+
+# 使用指定DNS服务器进行DNSSEC验证
+./dns-probe example.com --dnssec 8.8.8.8
+```
+
+#### DNS污染检测
 
 ```bash
 # 检测DNS污染
@@ -97,14 +148,34 @@
 └──────────────────────────────────────────────────────────────────
 ```
 
-### HTML报告生成
+#### DoH/DoT支持
+
+```bash
+# 使用DoH服务器
+./dns-probe example.com --doh https://dns.google/dns-query
+
+# 使用DoT服务器
+./dns-probe example.com --dot dns.alidns.com:853
+```
+
+#### JSON输出
+
+```bash
+# 输出JSON格式
+./dns-probe example.com --json
+
+# 输出JSON格式（所有记录类型）
+./dns-probe example.com --all --json
+```
+
+#### HTML报告
 
 ```bash
 # 生成HTML报告
 ./dns-probe example.com --html report.html
 ```
 
-### 批量域名查询
+#### 批量查询
 
 ```bash
 # 批量查询文件中的域名
@@ -114,47 +185,14 @@
 ./dns-probe --file domains.txt --json
 ```
 
-### 查询历史记录
+#### 查询历史
 
 ```bash
 # 显示查询历史
 ./dns-probe --history
 ```
 
-### Linux系统使用
-
-```bash
-# 下载对应架构的版本
-wget https://github.com/vito-L/dns-probe/releases/latest/download/dns-probe-linux-amd64
-
-# 添加执行权限
-chmod +x dns-probe-linux-amd64
-
-# 运行
-./dns-probe-linux-amd64 example.com
-```
-
-### 国产系统使用
-
-#### 银河麒麟 (Kylin) / 统信UOS / 深度Deepin
-
-```bash
-# 这些系统通常是amd64架构
-wget https://github.com/vito-L/dns-probe/releases/latest/download/dns-probe-linux-amd64
-chmod +x dns-probe-linux-amd64
-./dns-probe-linux-amd64 example.com
-```
-
-#### ARM64架构的国产系统
-
-```bash
-# 如果系统是ARM64架构（如飞腾、鲲鹏处理器）
-wget https://github.com/vito-L/dns-probe/releases/latest/download/dns-probe-linux-arm64
-chmod +x dns-probe-linux-arm64
-./dns-probe-linux-arm64 example.com
-```
-
-## 输出示例
+## 📊 输出示例
 
 ### 默认输出（A记录）
 
@@ -212,44 +250,33 @@ chmod +x dns-probe-linux-arm64
     DNS: 8.8.8.8, 耗时: 192 ms
 ```
 
-## 命令行参数
-
-| 参数 | 说明 |
-|------|------|
-| `<域名>` | 要查询的域名 |
-| `[DNS服务器...]` | 指定DNS服务器（可选） |
-| `--all` | 查询所有记录类型 |
-| `--json` | 输出JSON格式 |
-| `--pollution` | 检测DNS污染 |
-| `--html <文件>` | 生成HTML报告 |
-| `--file <文件>` | 批量查询文件中的域名 |
-| `--history` | 显示查询历史 |
-
-## 系统DNS服务器
+## 🔧 系统DNS服务器
 
 工具会自动获取系统配置的DNS服务器：
 
-- Windows: 从`ipconfig /all`获取
-- Linux: 从`/etc/resolv.conf`获取
+- **Windows**: 从`ipconfig /all`获取
+- **Linux**: 从`/etc/resolv.conf`获取
 
 如果获取失败，默认使用`8.8.8.8`
 
-## 支持的记录类型
+## 📋 支持的记录类型
 
 使用`--all`参数时，支持查询以下记录类型：
 
-- A (IPv4地址)
-- AAAA (IPv6地址)
-- CNAME (别名)
-- MX (邮件交换)
-- NS (域名服务器)
-- TXT (文本记录)
-- SOA (权威记录)
-- SRV (服务记录)
-- CAA (证书授权)
-- PTR (反向解析)
+| 记录类型 | 说明 |
+|----------|------|
+| A | IPv4地址 |
+| AAAA | IPv6地址 |
+| CNAME | 别名 |
+| MX | 邮件交换 |
+| NS | 域名服务器 |
+| TXT | 文本记录 |
+| SOA | 权威记录 |
+| SRV | 服务记录 |
+| CAA | 证书授权 |
+| PTR | 反向解析 |
 
-## 编译
+## 🛠️ 编译
 
 如果需要从源码编译：
 
@@ -270,11 +297,19 @@ GOOS=darwin GOARCH=amd64 go build -o dns-probe-darwin-amd64 .
 GOOS=darwin GOARCH=arm64 go build -o dns-probe-darwin-arm64 .
 ```
 
-## 依赖
+## 📦 依赖
 
-- Go 1.21+
-- github.com/miekg/dns
+- [Go](https://golang.org) 1.21+
+- [miekg/dns](https://github.com/miekg/dns)
 
-## 许可证
+## 📄 许可证
 
-MIT License
+[MIT License](LICENSE)
+
+## 🤝 贡献
+
+欢迎提交Issue和Pull Request！
+
+## ⭐ Star
+
+如果这个项目对你有帮助，请给个Star支持一下！
