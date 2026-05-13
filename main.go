@@ -224,7 +224,7 @@ type ProbeResult struct {
 }
 
 // ProbeDNS 拨测单个DNS服务器（只查询A记录）
-func ProbeDNS(domain, dnsServer string) ProbeResult {
+func ProbeDNS(domain, dnsServer string, checkDNSSEC ...bool) ProbeResult {
 	// 检查是否是DoH服务器
 	if strings.HasPrefix(dnsServer, "https://") {
 		return probeDoH(domain, dnsServer)
@@ -233,6 +233,12 @@ func ProbeDNS(domain, dnsServer string) ProbeResult {
 	// 检查是否是DoT服务器
 	if strings.Contains(dnsServer, ":853") {
 		return probeDoT(domain, dnsServer)
+	}
+
+	// 是否检查DNSSEC
+	enableDNSSEC := false
+	if len(checkDNSSEC) > 0 && checkDNSSEC[0] {
+		enableDNSSEC = true
 	}
 
 	// 普通DNS查询
@@ -246,12 +252,16 @@ func ProbeDNS(domain, dnsServer string) ProbeResult {
 
 	start := time.Now()
 
-	// 查询A记录，设置DO位以获取DNSSEC信息
+	// 查询A记录
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(domain), dns.TypeA)
 	m.RecursionDesired = true
 	m.CheckingDisabled = false
-	m.SetEdns0(4096, true) // 设置DO位
+
+	// 只有在启用DNSSEC时才设置DO位
+	if enableDNSSEC {
+		m.SetEdns0(4096, true)
+	}
 
 	r, _, err := c.Exchange(m, net.JoinHostPort(dnsServer, "53"))
 	if err != nil {
@@ -266,16 +276,18 @@ func ProbeDNS(domain, dnsServer string) ProbeResult {
 		return result
 	}
 
-	// 检查DNSSEC验证状态
-	if r.AuthenticatedData {
-		result.DNSSECValid = true
-	}
-
-	// 检查是否有RRSIG记录
-	for _, answer := range r.Answer {
-		if _, ok := answer.(*dns.RRSIG); ok {
+	// 只有在启用DNSSEC时才检查DNSSEC状态
+	if enableDNSSEC {
+		if r.AuthenticatedData {
 			result.DNSSECValid = true
-			break
+		}
+
+		// 检查是否有RRSIG记录
+		for _, answer := range r.Answer {
+			if _, ok := answer.(*dns.RRSIG); ok {
+				result.DNSSECValid = true
+				break
+			}
 		}
 	}
 
@@ -794,7 +806,7 @@ func parseRecord(answer dns.RR) DNSRecord {
 }
 
 // ProbeAll 并发拨测所有DNS服务器（只查询A记录）
-func ProbeAll(domain string, dnsServers []string) []ProbeResult {
+func ProbeAll(domain string, dnsServers []string, enableDNSSEC ...bool) []ProbeResult {
 	var wg sync.WaitGroup
 	results := make([]ProbeResult, len(dnsServers))
 
@@ -802,7 +814,7 @@ func ProbeAll(domain string, dnsServers []string) []ProbeResult {
 		wg.Add(1)
 		go func(idx int, srv string) {
 			defer wg.Done()
-			results[idx] = ProbeDNS(domain, srv)
+			results[idx] = ProbeDNS(domain, srv, enableDNSSEC...)
 		}(i, server)
 	}
 
@@ -1522,7 +1534,7 @@ func main() {
 	} else if queryAll {
 		results = ProbeAllRecordTypes(domain, dnsServers)
 	} else {
-		results = ProbeAll(domain, dnsServers)
+		results = ProbeAll(domain, dnsServers, enableDNSSEC)
 	}
 
 	// 保存历史记录
