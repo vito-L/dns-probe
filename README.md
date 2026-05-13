@@ -315,15 +315,15 @@ $ go test -v ./...
 === RUN   TestFormatTTL
 --- PASS: TestFormatTTL (0.00s)
 === RUN   TestGetSystemDNSServers
---- PASS: TestGetSystemDNSServers (0.02s)
+--- PASS: TestGetSystemDNSServers (0.03s)
 === RUN   TestProbeDNS
---- PASS: TestProbeDNS (0.19s)
+--- PASS: TestProbeDNS (0.21s)
 === RUN   TestProbeDNSInvalidDomain
 --- PASS: TestProbeDNSInvalidDomain (0.21s)
 === RUN   TestProbeAll
---- PASS: TestProbeAll (0.25s)
+--- PASS: TestProbeAll (0.22s)
 === RUN   TestProbeAllRecordTypes
---- PASS: TestProbeAllRecordTypes (2.00s)
+--- PASS: TestProbeAllRecordTypes (2.15s)
 === RUN   TestFormatText
 --- PASS: TestFormatText (0.01s)
 === RUN   TestFormatJSON
@@ -333,20 +333,24 @@ $ go test -v ./...
 === RUN   TestReadDomainsFromFileNotFound
 --- PASS: TestReadDomainsFromFileNotFound (0.00s)
 === RUN   TestSaveAndLoadHistory
---- PASS: TestSaveAndLoadHistory (0.01s)
+--- PASS: TestSaveAndLoadHistory (0.02s)
 === RUN   TestFormatHistory
 --- PASS: TestFormatHistory (0.00s)
 === RUN   TestProbeDoH
---- PASS: TestProbeDoH (0.19s)
+--- PASS: TestProbeDoH (1.30s)
 === RUN   TestProbeDoT
---- PASS: TestProbeDoT (0.05s)
+--- PASS: TestProbeDoT (0.04s)
 === RUN   TestDNSSECValidation
 --- PASS: TestDNSSECValidation (0.20s)
 === RUN   TestPollutionDetection
---- PASS: TestPollutionDetection (0.42s)
+--- PASS: TestPollutionDetection (0.48s)
 === RUN   TestMultipleDomains
---- PASS: TestMultipleDomains (0.41s)
+--- PASS: TestMultipleDomains (0.46s)
 === RUN   TestFormatMultipleJSON
+--- PASS: TestFormatMultipleJSON (0.00s)
+PASS
+ok  	github.com/vito-L/dns-probe	6.918s
+```
 --- PASS: TestFormatMultipleJSON (0.00s)
 PASS
 ok      github.com/vito-L/dns-probe    5.264s
