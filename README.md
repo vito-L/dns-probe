@@ -351,10 +351,6 @@ $ go test -v ./...
 PASS
 ok  	github.com/vito-L/dns-probe	6.918s
 ```
---- PASS: TestFormatMultipleJSON (0.00s)
-PASS
-ok      github.com/vito-L/dns-probe    5.264s
-```
 
 ## 📄 许可证
 
