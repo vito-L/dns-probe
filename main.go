@@ -825,8 +825,8 @@ func ProbeAll(domain string, dnsServers []string, enableDNSSEC ...bool) []ProbeR
 // ProbeAllWithPollutionCheck 并发拨测所有DNS服务器（带污染检测）
 func ProbeAllWithPollutionCheck(domain string, dnsServers []string) []ProbeResult {
 	// 先用国外DNS查询作为基准
-国外DNS := []string{"8.8.8.8", "1.1.1.1"}
-	benchmarkResults := ProbeAll(domain, 国外DNS)
+	foreignDNS := []string{"8.8.8.8", "1.1.1.1"}
+	benchmarkResults := ProbeAll(domain, foreignDNS)
 
 	// 获取基准IP列表
 	benchmarkIPs := make(map[string]bool)
@@ -900,36 +900,36 @@ func FormatText(results []ProbeResult) string {
 	sb.WriteString("║                    DNS Probe Tool v1.0                          ║\n")
 	sb.WriteString("╚══════════════════════════════════════════════════════════════════╝\n\n")
 
-	sb.WriteString(fmt.Sprintf("  域名: %s\n", results[0].Domain))
-	sb.WriteString(fmt.Sprintf("  时间: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
+	sb.WriteString(fmt.Sprintf("  Domain: %s\n", results[0].Domain))
+	sb.WriteString(fmt.Sprintf("  Time:   %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
 
 	// 按服务器分组显示
 	for _, r := range results {
-		sb.WriteString(fmt.Sprintf("┌─ DNS服务器: %s\n", r.DNSServer))
-		sb.WriteString(fmt.Sprintf("│  查询耗时: %d ms\n", r.Latency.Milliseconds()))
+		sb.WriteString(fmt.Sprintf("┌─ DNS Server: %s\n", r.DNSServer))
+		sb.WriteString(fmt.Sprintf("│  Latency: %d ms\n", r.Latency.Milliseconds()))
 
 		if r.IsPolluted {
-			sb.WriteString(warningStyle.Render("│  ⚠️  检测到DNS污染"))
+			sb.WriteString(warningStyle.Render("│  ⚠️  DNS pollution detected"))
 			sb.WriteString("\n")
-			sb.WriteString(warningStyle.Render(fmt.Sprintf("│  被污染的IP: %s", r.PollutedIP)))
+			sb.WriteString(warningStyle.Render(fmt.Sprintf("│  Polluted IP: %s", r.PollutedIP)))
 			sb.WriteString("\n")
-			sb.WriteString(warningStyle.Render(fmt.Sprintf("│  真实IP（国外DNS）: %s", r.RealIP)))
+			sb.WriteString(warningStyle.Render(fmt.Sprintf("│  Real IP (foreign DNS): %s", r.RealIP)))
 			sb.WriteString("\n")
 		}
 
 		if r.DNSSECValid {
-			sb.WriteString(successStyle.Render("│  ✅ DNSSEC验证通过"))
+			sb.WriteString(successStyle.Render("│  ✅ DNSSEC validation passed"))
 			sb.WriteString("\n")
 		}
 
 		if r.Error != nil {
-			sb.WriteString(fmt.Sprintf("│  ❌ 错误: %s\n", r.Error.Error()))
+			sb.WriteString(fmt.Sprintf("│  ❌ Error: %s\n", r.Error.Error()))
 			sb.WriteString("└──────────────────────────────────────────────────────────────────\n\n")
 			continue
 		}
 
 		if len(r.Records) == 0 {
-			sb.WriteString("│  (无记录)\n")
+			sb.WriteString("│  (no records)\n")
 			sb.WriteString("└──────────────────────────────────────────────────────────────────\n\n")
 			continue
 		}
@@ -940,7 +940,7 @@ func FormatText(results []ProbeResult) string {
 		})
 
 		sb.WriteString("│\n")
-		sb.WriteString(fmt.Sprintf("│  %-10s %-6s %s\n", "类型", "TTL", "值"))
+		sb.WriteString(fmt.Sprintf("│  %-10s %-6s %s\n", "Type", "TTL", "Value"))
 		sb.WriteString("│  " + strings.Repeat("─", 60) + "\n")
 
 		for _, rec := range r.Records {
@@ -1141,13 +1141,13 @@ func LoadHistory() ([]HistoryEntry, error) {
 func FormatHistory(history []HistoryEntry) string {
 	var sb strings.Builder
 
-	sb.WriteString("查询历史:\n")
+	sb.WriteString("Query History:\n")
 	sb.WriteString(strings.Repeat("─", 60) + "\n")
 
 	for i, entry := range history {
 		sb.WriteString(fmt.Sprintf("[%d] %s - %s\n", i+1, entry.Timestamp, entry.Domain))
 		for _, server := range entry.Servers {
-			sb.WriteString(fmt.Sprintf("    DNS: %s, 耗时: %d ms\n", server.Server, server.Latency))
+			sb.WriteString(fmt.Sprintf("    DNS: %s, Latency: %d ms\n", server.Server, server.Latency))
 		}
 	}
 
@@ -1305,8 +1305,8 @@ func FormatHTML(results []ProbeResult) string {
     <div class="container">
         <h1>DNS Probe Report</h1>
         <div class="info">
-            <p>域名: ` + results[0].Domain + `</p>
-            <p>时间: ` + time.Now().Format("2006-01-02 15:04:05") + `</p>
+            <p>Domain: ` + results[0].Domain + `</p>
+            <p>Time: ` + time.Now().Format("2006-01-02 15:04:05") + `</p>
         </div>
 `)
 
@@ -1319,19 +1319,19 @@ func FormatHTML(results []ProbeResult) string {
 `)
 
 		if r.IsPolluted {
-			sb.WriteString(`            <div class="pollution">⚠️ 检测到DNS污染</div>
+			sb.WriteString(`            <div class="pollution">⚠️ DNS pollution detected</div>
 `)
 		}
 
 		if r.Error != nil {
-			sb.WriteString(`            <div class="error">❌ 错误: ` + r.Error.Error() + `</div>
+			sb.WriteString(`            <div class="error">❌ Error: ` + r.Error.Error() + `</div>
 `)
 		} else if len(r.Records) > 0 {
 			sb.WriteString(`            <table>
                 <tr>
-                    <th>类型</th>
+                    <th>Type</th>
                     <th>TTL</th>
-                    <th>值</th>
+                    <th>Value</th>
                 </tr>
 `)
 			for _, rec := range r.Records {
@@ -1346,7 +1346,7 @@ func FormatHTML(results []ProbeResult) string {
 			sb.WriteString(`            </table>
 `)
 		} else {
-			sb.WriteString(`            <p>(无记录)</p>
+			sb.WriteString(`            <p>(no records)</p>
 `)
 		}
 
@@ -1363,24 +1363,23 @@ func FormatHTML(results []ProbeResult) string {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "用法: dns-probe <域名> [DNS服务器...] [--all] [--json] [--pollution] [--dnssec] [--doh <url>] [--dot <server>] [--html <文件>] [--file <文件>] [--history]\n")
-		fmt.Fprintf(os.Stderr, "\n示例:\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com                            # 使用系统DNS服务器查询A记录\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8                    # 使用指定DNS服务器查询A记录\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8 114.114.114.114    # 使用多个DNS服务器查询A记录\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --all                      # 查询所有记录类型\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --json                     # 输出JSON格式\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --pollution                # 检测DNS污染\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dnssec                   # 使用系统DNS服务器进行DNSSEC验证\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dnssec 8.8.8.8           # 使用指定DNS服务器进行DNSSEC验证\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --doh https://dns.google/dns-query  # 使用DoH服务器\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dot dns.alidns.com:853   # 使用DoT服务器\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe example.com --html report.html         # 生成HTML报告\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt                     # 批量查询文件中的域名\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt --json              # 批量查询并输出JSON格式\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe --history                              # 显示查询历史\n")
-		fmt.Fprintf(os.Stderr, "  dns-probe --history                      # 显示查询历史\n")
-		fmt.Fprintf(os.Stderr, "\n系统DNS服务器:\n")
+		fmt.Fprintf(os.Stderr, "Usage: dns-probe <domain> [DNS servers...] [--all] [--json] [--pollution] [--dnssec] [--doh <url>] [--dot <server>] [--html <file>] [--file <file>] [--history]\n")
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com                            # Query A record using system DNS\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8                    # Query A record using specified DNS\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com 8.8.8.8 114.114.114.114    # Query A record using multiple DNS\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --all                      # Query all record types\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --json                     # Output in JSON format\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --pollution                # Detect DNS pollution\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dnssec                   # DNSSEC validation with system DNS\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dnssec 8.8.8.8           # DNSSEC validation with specified DNS\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --doh https://dns.google/dns-query  # Use DoH server\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --dot dns.alidns.com:853   # Use DoT server\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe example.com --html report.html         # Generate HTML report\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt                     # Batch query domains from file\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe --file domains.txt --json              # Batch query with JSON output\n")
+		fmt.Fprintf(os.Stderr, "  dns-probe --history                              # Show query history\n")
+		fmt.Fprintf(os.Stderr, "\nSystem DNS servers:\n")
 		for _, s := range DefaultDNSServers {
 			fmt.Fprintf(os.Stderr, "  %s\n", s)
 		}
@@ -1415,7 +1414,7 @@ func main() {
 				dohServer = os.Args[i+1]
 				i++
 			} else {
-				fmt.Fprintf(os.Stderr, "错误: --doh 参数需要指定URL\n")
+				fmt.Fprintf(os.Stderr, "Error: --doh requires a URL argument\n")
 				os.Exit(1)
 			}
 		} else if os.Args[i] == "--dot" {
@@ -1423,7 +1422,7 @@ func main() {
 				dotServer = os.Args[i+1]
 				i++
 			} else {
-				fmt.Fprintf(os.Stderr, "错误: --dot 参数需要指定服务器\n")
+				fmt.Fprintf(os.Stderr, "Error: --dot requires a server argument\n")
 				os.Exit(1)
 			}
 		} else if os.Args[i] == "--history" {
@@ -1433,7 +1432,7 @@ func main() {
 				htmlFile = os.Args[i+1]
 				i++
 			} else {
-				fmt.Fprintf(os.Stderr, "错误: --html 参数需要指定文件名\n")
+				fmt.Fprintf(os.Stderr, "Error: --html requires a filename argument\n")
 				os.Exit(1)
 			}
 		} else if os.Args[i] == "--file" {
@@ -1441,7 +1440,7 @@ func main() {
 				filePath = os.Args[i+1]
 				i++
 			} else {
-				fmt.Fprintf(os.Stderr, "错误: --file 参数需要指定文件名\n")
+				fmt.Fprintf(os.Stderr, "Error: --file requires a filename argument\n")
 				os.Exit(1)
 			}
 		} else if i == 1 && !strings.HasPrefix(os.Args[i], "--") {
@@ -1465,7 +1464,7 @@ func main() {
 	if showHistory {
 		history, err := LoadHistory()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "错误: 读取历史记录失败: %s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "Error: failed to read history: %s\n", err.Error())
 			os.Exit(1)
 		}
 		fmt.Print(FormatHistory(history))
@@ -1476,12 +1475,12 @@ func main() {
 	if filePath != "" {
 		domains, err := ReadDomainsFromFile(filePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "错误: 读取文件失败: %s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "Error: failed to read file: %s\n", err.Error())
 			os.Exit(1)
 		}
 
 		if len(domains) == 0 {
-			fmt.Fprintf(os.Stderr, "错误: 文件中没有域名\n")
+			fmt.Fprintf(os.Stderr, "Error: no domains found in file\n")
 			os.Exit(1)
 		}
 
@@ -1490,12 +1489,12 @@ func main() {
 			fmt.Println(FormatMultipleJSON(results))
 		} else {
 			for _, result := range results {
-				fmt.Printf("域名: %s\n", result.Domain)
+				fmt.Printf("Domain: %s\n", result.Domain)
 				for _, server := range result.Servers {
-					fmt.Printf("  DNS服务器: %s\n", server.Server)
-					fmt.Printf("  查询耗时: %d ms\n", server.Latency)
+					fmt.Printf("  DNS Server: %s\n", server.Server)
+					fmt.Printf("  Latency: %d ms\n", server.Latency)
 					if server.Error != "" {
-						fmt.Printf("  错误: %s\n", server.Error)
+						fmt.Printf("  Error: %s\n", server.Error)
 					} else {
 						for _, rec := range server.Records {
 							fmt.Printf("    %-10s %-6d %s\n", rec.Type, rec.TTL, rec.Value)
@@ -1510,7 +1509,7 @@ func main() {
 
 	// 单域名查询模式
 	if domain == "" {
-		fmt.Fprintf(os.Stderr, "错误: 请指定域名或使用 --file 参数\n")
+		fmt.Fprintf(os.Stderr, "Error: please specify a domain or use --file flag\n")
 		os.Exit(1)
 	}
 
@@ -1539,7 +1538,7 @@ func main() {
 
 	// 保存历史记录
 	if err := SaveHistory(domain, results); err != nil {
-		fmt.Fprintf(os.Stderr, "警告: 保存历史记录失败: %s\n", err.Error())
+		fmt.Fprintf(os.Stderr, "Warning: failed to save history: %s\n", err.Error())
 	}
 
 	// HTML报告
@@ -1547,10 +1546,10 @@ func main() {
 		html := FormatHTML(results)
 		err := os.WriteFile(htmlFile, []byte(html), 0644)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "错误: 写入HTML文件失败: %s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "Error: failed to write HTML file: %s\n", err.Error())
 			os.Exit(1)
 		}
-		fmt.Printf("HTML报告已生成: %s\n", htmlFile)
+		fmt.Printf("HTML report generated: %s\n", htmlFile)
 		return
 	}
 
